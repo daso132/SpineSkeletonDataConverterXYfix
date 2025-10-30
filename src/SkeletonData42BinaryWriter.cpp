@@ -410,7 +410,17 @@ void writeAnimation(Binary& binary, const Animation& animation, const SkeletonDa
                 }
                 case SlotTimelineType::SLOT_ALPHA: {
                     writeVarint(binary, timeline.size(), true);
-                    writeTimeline(binary, timeline, 1);
+                    writeFloat(binary, timeline[0].time);
+                    writeByte(binary, (int)(timeline[0].value1 * 255.0f));
+                    for (int frameIndex = 1; frameIndex < timeline.size(); frameIndex++) {
+                        writeFloat(binary, timeline[frameIndex].time); 
+                        writeByte(binary, (int)(timeline[frameIndex].value1 * 255.0f));
+                        CurveType curveType = timeline[frameIndex - 1].curveType;
+                        writeSByte(binary, (signed char)curveType);
+                        if (curveType == CurveType::CURVE_BEZIER) {
+                            writeCurve(binary, timeline[frameIndex - 1]);
+                        }
+                    }
                     break;
                 }
             }
