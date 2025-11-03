@@ -175,7 +175,7 @@ const TimelineFrame* findFrameAtTime(const Timeline& timeline, float time) {
     return nullptr;
 }
 
-// Linear interpolation cho giá trị
+// Linear interpolation 
 float interpolateValue(const Timeline& timeline, float targetTime) {
     if (timeline.empty()) return 0.0f;
     if (targetTime <= timeline.front().time) return timeline.front().value1;
@@ -193,18 +193,18 @@ float interpolateValue(const Timeline& timeline, float targetTime) {
     return 0.0f;
 }
 
-// Hàm split Bezier curve tại parameter t (0-1)
-// Input: curve gốc [x0, y0, x1, y1, x2, y2, x3, y3] trong format 4.1 (absolute)
-// Output: hai curves mới
+// Bezier curve division function at parameter t (0-1)
+// Input: base curve [x0, y0, x1, y1, x2, y2, x3, y3] , split point
+// Output: two new curves
 struct SplitCurveResult {
-    std::vector<float> leftCurve;   // 4 giá trị
-    std::vector<float> rightCurve;  // 4 giá trị
-    float splitValue;               // Giá trị tại điểm split
+    std::vector<float> leftCurve;   // 4 value
+    std::vector<float> rightCurve;  // 4 value
+    float splitValue;               // value at split point
 };
 
 SplitCurveResult splitBezierCurve(const std::vector<float>& curve, float t) {
-    // curve format: [cx1, cy1, cx2, cy2] trong Spine 4.1
-    // Đây là control points tuyệt đối
+    // curve format: [cx1, cy1, cx2, cy2]
+    // These are absolute control points.
     
     if (curve.size() < 4) {
         return {{}, {}, 0.0f};
@@ -214,18 +214,18 @@ SplitCurveResult splitBezierCurve(const std::vector<float>& curve, float t) {
     float cx2 = curve[2], cy2 = curve[3];
     
     // De Casteljau's algorithm
-    // P0 = start point (đã có từ frame)
+    // P0 = start point (from current frame)
     // P1 = (cx1, cy1)
     // P2 = (cx2, cy2)  
-    // P3 = end point (từ frame kế tiếp)
+    // P3 = end point (from next frame)
     
-    // Tính các điểm trung gian
+    // Calculate the intermediate points
     // Q0 = P0 + t*(P1-P0)
     // Q1 = P1 + t*(P2-P1)
     // Q2 = P2 + t*(P3-P2)
     // R0 = Q0 + t*(Q1-Q0)
     // R1 = Q1 + t*(Q2-Q1)
-    // S = R0 + t*(R1-R0) = điểm split
+    // S = R0 + t*(R1-R0) = split point
     
     // Left curve: P0 -> Q0 -> R0 -> S
     // Right curve: S -> R1 -> Q2 -> P3
@@ -234,18 +234,18 @@ SplitCurveResult splitBezierCurve(const std::vector<float>& curve, float t) {
     result.leftCurve.resize(4);
     result.rightCurve.resize(4);
     
-    // Lưu ý: Chúng ta cần biết P0 và P3 để tính chính xác
-    // Nhưng hàm này chỉ xử lý control points
-    // Vì vậy ta chỉ tính tương đối
+    // Note: We need to know P0 and P3 to calculate accurately
+    // but this function only handles control points.
+    // so we only calculate relatively.
     
-    // Left curve control points (tương đối với P0)
-    result.leftCurve[0] = cx1;  // Sẽ được điều chỉnh sau
+    // Left curve control points (relative to P0)
+    result.leftCurve[0] = cx1;  // Will be adjusted later
     result.leftCurve[1] = cy1;
-    result.leftCurve[2] = cx2;  // Sẽ được điều chỉnh sau
+    result.leftCurve[2] = cx2;  // Will be adjusted later
     result.leftCurve[3] = cy2;
     
-    // Right curve control points (tương đối với S)
-    result.rightCurve[0] = cx1;  // Sẽ được điều chỉnh sau
+    // Right curve control points (relative to S)
+    result.rightCurve[0] = cx1;  // Will be adjusted later
     result.rightCurve[1] = cy1;
     result.rightCurve[2] = cx2;
     result.rightCurve[3] = cy2;
@@ -253,7 +253,7 @@ SplitCurveResult splitBezierCurve(const std::vector<float>& curve, float t) {
     return result;
 }
 
-// Hàm split curve thực tế với thông tin đầy đủ
+// split curve function
 SplitCurveResult splitBezierCurveFull(float startTime, float startValue, 
                                       const std::vector<float>& curve,
                                       float endTime, float endValue,
@@ -304,7 +304,7 @@ SplitCurveResult splitBezierCurveFull(float startTime, float startValue,
 }
 
 // =====================================================
-// Hàm split timeline tại các breakpoints
+// Function to split timeline at breakpointsv
 // =====================================================
 
 void splitTimelineAtBreakpoints(Timeline& timeline, const std::set<float>& breakpoints) {
@@ -316,11 +316,11 @@ void splitTimelineAtBreakpoints(Timeline& timeline, const std::set<float>& break
         const auto& frame = timeline[i];
         newTimeline.push_back(frame);
         
-        // Kiểm tra xem có breakpoint nào giữa frame này và frame kế tiếp không
+        // Check if there is a breakpoint between this frame and the next frame
         if (i + 1 < timeline.size() && frame.curveType == CurveType::CURVE_BEZIER) {
             const auto& nextFrame = timeline[i + 1];
             
-            // Tìm tất cả breakpoints giữa frame.time và nextFrame.time
+            // Find all breakpoints between frame.time and nextFrame.time
             std::vector<float> splits;
             for (float bp : breakpoints) {
                 if (bp > frame.time && bp < nextFrame.time) {
@@ -336,7 +336,7 @@ void splitTimelineAtBreakpoints(Timeline& timeline, const std::set<float>& break
                 float currentValue = frame.value1;
                 std::vector<float> currentCurve = frame.curve;
                 
-                // Split tại mỗi breakpoint
+                // Split at each breakpoint
                 for (float splitTime : splits) {
                     auto splitResult = splitBezierCurveFull(
                         currentTime, currentValue,
@@ -345,10 +345,10 @@ void splitTimelineAtBreakpoints(Timeline& timeline, const std::set<float>& break
                         splitTime
                     );
                     
-                    // Update curve của frame cuối cùng trong newTimeline
+                    // Update curve of the last frame in newTimeline
                     newTimeline.back().curve = splitResult.leftCurve;
                     
-                    // Tạo frame mới tại split point
+                    // Create a new frame at the split point
                     TimelineFrame splitFrame;
                     splitFrame.time = splitTime;
                     splitFrame.value1 = splitResult.splitValue;
@@ -356,7 +356,7 @@ void splitTimelineAtBreakpoints(Timeline& timeline, const std::set<float>& break
                     splitFrame.curve = splitResult.rightCurve;
                     newTimeline.push_back(splitFrame);
                     
-                    // Update cho lần split tiếp theo
+                    // Update for next split
                     currentTime = splitTime;
                     currentValue = splitResult.splitValue;
                     currentCurve = splitResult.rightCurve;
@@ -369,7 +369,7 @@ void splitTimelineAtBreakpoints(Timeline& timeline, const std::set<float>& break
 }
 
 // =====================================================
-// HÃ m merge chÃ­nh
+// merge  function
 // =====================================================
 
 void mergeTranslateXYToTranslate(SkeletonData& skeleton) {
@@ -381,20 +381,20 @@ void mergeTranslateXYToTranslate(SkeletonData& skeleton) {
             
             if (!hasTranslateX && !hasTranslateY) continue;
             
-            // Tạo copies để xử lý
+            // Create copies for processing
             Timeline tlX = hasTranslateX ? boneTimeline["translatex"] : Timeline();
             Timeline tlY = hasTranslateY ? boneTimeline["translatey"] : Timeline();
             
-            // Thu thập tất cả time points
+            // Collect all time points
             std::set<float> allTimes;
             if (hasTranslateX) for (const auto& f : tlX) allTimes.insert(f.time);
             if (hasTranslateY) for (const auto& f : tlY) allTimes.insert(f.time);
             
-            // Split curves tại các breakpoints
+            // Split curves at breakpoints
             if (hasTranslateX) splitTimelineAtBreakpoints(tlX, allTimes);
             if (hasTranslateY) splitTimelineAtBreakpoints(tlY, allTimes);
             
-            // Thu thập lại times sau khi split
+            // Collect times after split
             allTimes.clear();
             if (hasTranslateX) for (const auto& f : tlX) allTimes.insert(f.time);
             if (hasTranslateY) for (const auto& f : tlY) allTimes.insert(f.time);
@@ -409,7 +409,7 @@ void mergeTranslateXYToTranslate(SkeletonData& skeleton) {
                 const TimelineFrame* frameX = hasTranslateX ? findFrameAtTime(tlX, time) : nullptr;
                 const TimelineFrame* frameY = hasTranslateY ? findFrameAtTime(tlY, time) : nullptr;
                 
-                // Giá trị
+                // value
                 newFrame.value1 = frameX ? frameX->value1 : 0.0f;
                 newFrame.value2 = frameY ? frameY->value1 : 0.0f;
                 
@@ -457,20 +457,20 @@ void mergeTranslateXYToTranslate(SkeletonData& skeleton) {
             
             if (!hasScaleX && !hasScaleY) continue;
             
-            // Tạo copies để xử lý
+            // Create copies for processing
             Timeline tlX = hasScaleX ? boneTimeline["scalex"] : Timeline();
             Timeline tlY = hasScaleY ? boneTimeline["scaley"] : Timeline();
             
-            // Thu thập tất cả time points
+            // Collect all time points
             std::set<float> allTimes;
             if (hasScaleX) for (const auto& f : tlX) allTimes.insert(f.time);
             if (hasScaleY) for (const auto& f : tlY) allTimes.insert(f.time);
             
-            // Split curves tại các breakpoints
+            // Split curves at breakpoints
             if (hasScaleX) splitTimelineAtBreakpoints(tlX, allTimes);
             if (hasScaleY) splitTimelineAtBreakpoints(tlY, allTimes);
             
-            // Thu thập lại times sau khi split
+            // Collect times after split
             allTimes.clear();
             if (hasScaleX) for (const auto& f : tlX) allTimes.insert(f.time);
             if (hasScaleY) for (const auto& f : tlY) allTimes.insert(f.time);
@@ -485,7 +485,7 @@ void mergeTranslateXYToTranslate(SkeletonData& skeleton) {
                 const TimelineFrame* frameX = hasScaleX ? findFrameAtTime(tlX, time) : nullptr;
                 const TimelineFrame* frameY = hasScaleY ? findFrameAtTime(tlY, time) : nullptr;
                 
-                // Giá trị
+                // value
                 newFrame.value1 = frameX ? frameX->value1 : 1.0f;
                 newFrame.value2 = frameY ? frameY->value1 : 1.0f;
                 
@@ -533,20 +533,20 @@ void mergeTranslateXYToTranslate(SkeletonData& skeleton) {
             
             if (!hasShearX && !hasShearY) continue;
             
-            // Tạo copies để xử lý
+            // Create copies for processing
             Timeline tlX = hasShearX ? boneTimeline["shearx"] : Timeline();
             Timeline tlY = hasShearY ? boneTimeline["sheary"] : Timeline();
             
-            // Thu thập tất cả time points
+            // Collect all time points
             std::set<float> allTimes;
             if (hasShearX) for (const auto& f : tlX) allTimes.insert(f.time);
             if (hasShearY) for (const auto& f : tlY) allTimes.insert(f.time);
             
-            // Split curves tại các breakpoints
+            // Split curves at breakpoints
             if (hasShearX) splitTimelineAtBreakpoints(tlX, allTimes);
             if (hasShearY) splitTimelineAtBreakpoints(tlY, allTimes);
             
-            // Thu thập lại times sau khi split
+            // Collect times after split
             allTimes.clear();
             if (hasShearX) for (const auto& f : tlX) allTimes.insert(f.time);
             if (hasShearY) for (const auto& f : tlY) allTimes.insert(f.time);
@@ -561,7 +561,7 @@ void mergeTranslateXYToTranslate(SkeletonData& skeleton) {
                 const TimelineFrame* frameX = hasShearX ? findFrameAtTime(tlX, time) : nullptr;
                 const TimelineFrame* frameY = hasShearY ? findFrameAtTime(tlY, time) : nullptr;
                 
-                // Giá trị
+                // value
                 newFrame.value1 = frameX ? frameX->value1 : 0.0f;
                 newFrame.value2 = frameY ? frameY->value1 : 0.0f;
                 
