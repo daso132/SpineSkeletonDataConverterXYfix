@@ -33,6 +33,7 @@ struct ConversionOptions {
     std::string outputVersionString; // 完整的版本号字符串，如 "4.2.11"
     bool help = false;
     bool removeCurve = false;
+    bool XYconvert = false;
 };
 
 bool aboveOrEqualVersion(SpineVersion version, SpineVersion target) {
@@ -125,7 +126,8 @@ bool convertFile(const std::string& inputFile, const std::string& outputFile,
                 FileFormat inputFormat, FileFormat outputFormat, 
                 SpineVersion inputVersion, SpineVersion outputVersion, 
                 const std::string& outputVersionString,
-                bool removeCurveOption) {
+                bool removeCurveOption, 
+                bool XYconvertOption) {
     
     try {
         // Read input file
@@ -222,7 +224,11 @@ bool convertFile(const std::string& inputFile, const std::string& outputFile,
             belowOrEqualVersion(outputVersion, SpineVersion::Version38)) {
 
             //combine "translatex" and "translatey" into "translate" (similar to scaleXY and shearXY) before doing the downgrade
-            mergeTranslateXYToTranslate(skelData); 
+            if (XYconvertOption){
+                std::cout << "convert \"animation.bone.translatex/translatey/scalex/scaley/shearx/sheary\" to \"animation.bone.translate/scale/shear\"\n";
+                mergeTranslateXYToTranslate(skelData); 
+            }
+            
             if (removeCurveOption) {
                 std::cout << "Converting from 4.x to 3.x with --remove-curve, stripping curves...\n";
                 removeCurve(skelData);
@@ -480,6 +486,8 @@ ConversionOptions parseArguments(int argc, char* argv[]) {
             options.help = true;
         } else if (arg == "--remove-curve") {
             options.removeCurve = true;
+        }else if (arg == "--XYconvert") {
+            options.XYconvert = true;
         } else {
             std::cerr << "Warning: Unknown option: " << arg << "\n";
         }
@@ -529,10 +537,13 @@ int main(int argc, char* argv[]) {
         if (options.removeCurve) {
             std::cout << "Option --remove-curve enabled: curves will be stripped instead of converted when crossing 3.x/4.x.\n";
         }
+        if (options.XYconvert) {
+            std::cout << "Option --XYconvert enabled: convert \"animation.bone.translatex/translatey/scalex/scaley/shearx/sheary\" to \"animation.bone.translate/scale/shear\" when downgrading from 4.x to 3.x.\n";
+        }
         std::cout << "Converting from " << (options.inputFormat == FileFormat::Json ? "JSON" : "SKEL") 
                   << " to " << (options.outputFormat == FileFormat::Json ? "JSON" : "SKEL") << "...\n";
         
-        if (convertFile(options.inputFile, options.outputFile, options.inputFormat, options.outputFormat, inputVersion, outputVersion, outputVersionString, options.removeCurve)) {
+        if (convertFile(options.inputFile, options.outputFile, options.inputFormat, options.outputFormat, inputVersion, outputVersion, outputVersionString, options.removeCurve,options.XYconvert)) {
             std::cout << "Conversion completed successfully!\n";
             std::cout << "Output file: " << options.outputFile << "\n";
             return 0;
