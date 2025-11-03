@@ -416,6 +416,7 @@ void printUsage(const char* programName) {
     std::cout << "Options:\n";
     std::cout << "  -v          Output version (must be complete: x.y.z format)\n";
     std::cout << "  --remove-curve  Strip animation curves instead of converting between formats\n";
+    std::cout << "  --XYconvert  convert \"animation.bone.translatex/translatey/scalex/scaley/shearx/sheary\" to \"animation.bone.translate/scale/shear\" when downgrading from 4.x to 3.x instead of removing them completely.\n";
     std::cout << "  --help      Show this help message\n\n";
     std::cout << "Examples:\n";
     std::cout << "  " << programName << " input.skel output.json\n";

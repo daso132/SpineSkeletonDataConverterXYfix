@@ -48,7 +48,7 @@ SpineSkeletonDataConverter.exe input.skel output.json
 SpineSkeletonDataConverter.exe input.json output.skel
 
 # Cross-version conversion (convert 3.7 file to 4.2 format)
-SpineSkeletonDataConverter.exe input37.json output42.json -v 4.2.11
+SpineSkeletonDataConverter.exe input37.json output42.json -v 4.2.11 --XYconvert
 
 # Convert new binary format to old version
 SpineSkeletonDataConverter.exe new.skel old.json -v 3.8.99
@@ -60,6 +60,7 @@ SpineSkeletonDataConverter.exe new.skel old.json -v 3.8.99
 # Options:
 #   -v              Output version (must be complete: x.y.z format)
 #   --remove-curve  Strip animation curves instead of converting when crossing 3.x/4.x
+#	--XYconvert		convert "animation.bone.translatex/translatey/scalex/scaley/shearx/sheary" to "animation.bone.translate/scale/shear" 			  when downgrading from 4.x to 3.x instead of removing them completely.
 #   --help          Show this help message
 
 # Supported Spine versions: 3.5.x, 3.6.x, 3.7.x, 3.8.x, 4.0.x, 4.1.x, 4.2.x
@@ -99,13 +100,15 @@ For large directories of Spine assets, use the bundled helper script `tools/Spin
 python tools/SpineConverter.py <input_dir> <output_dir> \
 	[-v x.y.z] \
 	[--format same|json|skel|other] \
-	[--remove-curve]
+	[--remove-curve] \
+	[--XYconvert]
 ```
 
 - Recursively processes `.json`, `.skel`, and `.atlas` files, preserving the folder structure in the output directory.
 - `-v` overrides the target skeleton version (defaults to each file's original version).
 - `--format` controls output formats for `.json`/`.skel` files (`same` keeps the original format, `json`/`skel` force a specific format, and `other` swaps between the two).
 - `--remove-curve` forwards to the native converter, stripping animation curves instead of translating them when converting between 3.x and 4.x.
+- `-XYconver` convert "animation.bone.translatex/translatey/scalex/scaley/shearx/sheary" to "animation.bone.translate/scale/shear" when downgrading from 4.x to 3.x instead of removing them completely.
 - `.atlas` files are always downgraded through `SpineAtlasDowngrade.exe`.
 
 ## 🧪 Testing
