@@ -613,6 +613,7 @@ namespace spine42 {
     Json writeJsonData(const SkeletonData&);
 }
 
+void mergeTranslateXYToTranslate(SkeletonData& skeleton); // "<translate/scale/shear>x" + "<translate/scale/shear>y" = "<translate/scale/shear>"
 void convertCurve3xTo4x(SkeletonData& skeleton);
 void convertCurve4xTo3x(SkeletonData& skeleton);
 void removeCurve(SkeletonData& skeleton);

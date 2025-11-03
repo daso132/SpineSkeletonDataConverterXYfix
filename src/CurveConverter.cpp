@@ -1,4 +1,7 @@
 #include "SkeletonData.h"
+#include <set>
+#include <cmath>  // for std::abs function
+#include <algorithm> 
 
 enum class CurveYType {
     R1, G1, B1, A1, R2, G2, B2, V1, V2, V3, V4, V5, V6, ZeroOne
@@ -155,6 +158,451 @@ void convertCurve3xTo4x(SkeletonData& skeleton) {
                     for (auto& [timelineType, timeline] : multiTimeline)
                         if (timelineType == "deform")
                             convertTimelineCurve3xTo4x(timeline, { CurveYType::ZeroOne });
+    }
+}
+
+TimelineFrame* findFrameAtTime(Timeline& timeline, float time) {
+    for (auto& frame : timeline) {
+        if (std::abs(frame.time - time) < 0.0001f) return &frame;
+    }
+    return nullptr;
+}
+
+const TimelineFrame* findFrameAtTime(const Timeline& timeline, float time) {
+    for (const auto& frame : timeline) {
+        if (std::abs(frame.time - time) < 0.0001f) return &frame;
+    }
+    return nullptr;
+}
+
+// Linear interpolation cho giá trị
+float interpolateValue(const Timeline& timeline, float targetTime) {
+    if (timeline.empty()) return 0.0f;
+    if (targetTime <= timeline.front().time) return timeline.front().value1;
+    if (targetTime >= timeline.back().time) return timeline.back().value1;
+    
+    for (size_t i = 0; i + 1 < timeline.size(); i++) {
+        const auto& frame1 = timeline[i];
+        const auto& frame2 = timeline[i + 1];
+        
+        if (targetTime >= frame1.time && targetTime <= frame2.time) {
+            float t = (targetTime - frame1.time) / (frame2.time - frame1.time);
+            return frame1.value1 + t * (frame2.value1 - frame1.value1);
+        }
+    }
+    return 0.0f;
+}
+
+// Hàm split Bezier curve tại parameter t (0-1)
+// Input: curve gốc [x0, y0, x1, y1, x2, y2, x3, y3] trong format 4.1 (absolute)
+// Output: hai curves mới
+struct SplitCurveResult {
+    std::vector<float> leftCurve;   // 4 giá trị
+    std::vector<float> rightCurve;  // 4 giá trị
+    float splitValue;               // Giá trị tại điểm split
+};
+
+SplitCurveResult splitBezierCurve(const std::vector<float>& curve, float t) {
+    // curve format: [cx1, cy1, cx2, cy2] trong Spine 4.1
+    // Đây là control points tuyệt đối
+    
+    if (curve.size() < 4) {
+        return {{}, {}, 0.0f};
+    }
+    
+    float cx1 = curve[0], cy1 = curve[1];
+    float cx2 = curve[2], cy2 = curve[3];
+    
+    // De Casteljau's algorithm
+    // P0 = start point (đã có từ frame)
+    // P1 = (cx1, cy1)
+    // P2 = (cx2, cy2)  
+    // P3 = end point (từ frame kế tiếp)
+    
+    // Tính các điểm trung gian
+    // Q0 = P0 + t*(P1-P0)
+    // Q1 = P1 + t*(P2-P1)
+    // Q2 = P2 + t*(P3-P2)
+    // R0 = Q0 + t*(Q1-Q0)
+    // R1 = Q1 + t*(Q2-Q1)
+    // S = R0 + t*(R1-R0) = điểm split
+    
+    // Left curve: P0 -> Q0 -> R0 -> S
+    // Right curve: S -> R1 -> Q2 -> P3
+    
+    SplitCurveResult result;
+    result.leftCurve.resize(4);
+    result.rightCurve.resize(4);
+    
+    // Lưu ý: Chúng ta cần biết P0 và P3 để tính chính xác
+    // Nhưng hàm này chỉ xử lý control points
+    // Vì vậy ta chỉ tính tương đối
+    
+    // Left curve control points (tương đối với P0)
+    result.leftCurve[0] = cx1;  // Sẽ được điều chỉnh sau
+    result.leftCurve[1] = cy1;
+    result.leftCurve[2] = cx2;  // Sẽ được điều chỉnh sau
+    result.leftCurve[3] = cy2;
+    
+    // Right curve control points (tương đối với S)
+    result.rightCurve[0] = cx1;  // Sẽ được điều chỉnh sau
+    result.rightCurve[1] = cy1;
+    result.rightCurve[2] = cx2;
+    result.rightCurve[3] = cy2;
+    
+    return result;
+}
+
+// Hàm split curve thực tế với thông tin đầy đủ
+SplitCurveResult splitBezierCurveFull(float startTime, float startValue, 
+                                      const std::vector<float>& curve,
+                                      float endTime, float endValue,
+                                      float splitTime) {
+    SplitCurveResult result;
+    
+    if (curve.size() < 4 || splitTime <= startTime || splitTime >= endTime) {
+        return result;
+    }
+    
+    // Tính t parameter (0-1)
+    float t = (splitTime - startTime) / (endTime - startTime);
+    
+    // Bezier curve points
+    float x0 = startTime, y0 = startValue;
+    float x1 = curve[0], y1 = curve[1];
+    float x2 = curve[2], y2 = curve[3];
+    float x3 = endTime, y3 = endValue;
+    
+    // De Casteljau's algorithm
+    // First level
+    float q0x = x0 + t * (x1 - x0);
+    float q0y = y0 + t * (y1 - y0);
+    float q1x = x1 + t * (x2 - x1);
+    float q1y = y1 + t * (y2 - y1);
+    float q2x = x2 + t * (x3 - x2);
+    float q2y = y2 + t * (y3 - y2);
+    
+    // Second level
+    float r0x = q0x + t * (q1x - q0x);
+    float r0y = q0y + t * (q1y - q0y);
+    float r1x = q1x + t * (q2x - q1x);
+    float r1y = q1y + t * (q2y - q1y);
+    
+    // Split point
+    float sx = r0x + t * (r1x - r0x);
+    float sy = r0y + t * (r1y - r0y);
+    
+    // Left curve: (x0,y0) -> (q0x,q0y) -> (r0x,r0y) -> (sx,sy)
+    result.leftCurve = {q0x, q0y, r0x, r0y};
+    
+    // Right curve: (sx,sy) -> (r1x,r1y) -> (q2x,q2y) -> (x3,y3)
+    result.rightCurve = {r1x, r1y, q2x, q2y};
+    
+    result.splitValue = sy;
+    
+    return result;
+}
+
+// =====================================================
+// Hàm split timeline tại các breakpoints
+// =====================================================
+
+void splitTimelineAtBreakpoints(Timeline& timeline, const std::set<float>& breakpoints) {
+    if (timeline.empty() || breakpoints.empty()) return;
+    
+    Timeline newTimeline;
+    
+    for (size_t i = 0; i < timeline.size(); i++) {
+        const auto& frame = timeline[i];
+        newTimeline.push_back(frame);
+        
+        // Kiểm tra xem có breakpoint nào giữa frame này và frame kế tiếp không
+        if (i + 1 < timeline.size() && frame.curveType == CurveType::CURVE_BEZIER) {
+            const auto& nextFrame = timeline[i + 1];
+            
+            // Tìm tất cả breakpoints giữa frame.time và nextFrame.time
+            std::vector<float> splits;
+            for (float bp : breakpoints) {
+                if (bp > frame.time && bp < nextFrame.time) {
+                    splits.push_back(bp);
+                }
+            }
+            
+            if (!splits.empty() && frame.curve.size() >= 4) {
+                // Sort breakpoints
+                std::sort(splits.begin(), splits.end());
+                
+                float currentTime = frame.time;
+                float currentValue = frame.value1;
+                std::vector<float> currentCurve = frame.curve;
+                
+                // Split tại mỗi breakpoint
+                for (float splitTime : splits) {
+                    auto splitResult = splitBezierCurveFull(
+                        currentTime, currentValue,
+                        currentCurve,
+                        nextFrame.time, nextFrame.value1,
+                        splitTime
+                    );
+                    
+                    // Update curve của frame cuối cùng trong newTimeline
+                    newTimeline.back().curve = splitResult.leftCurve;
+                    
+                    // Tạo frame mới tại split point
+                    TimelineFrame splitFrame;
+                    splitFrame.time = splitTime;
+                    splitFrame.value1 = splitResult.splitValue;
+                    splitFrame.curveType = CurveType::CURVE_BEZIER;
+                    splitFrame.curve = splitResult.rightCurve;
+                    newTimeline.push_back(splitFrame);
+                    
+                    // Update cho lần split tiếp theo
+                    currentTime = splitTime;
+                    currentValue = splitResult.splitValue;
+                    currentCurve = splitResult.rightCurve;
+                }
+            }
+        }
+    }
+    
+    timeline = newTimeline;
+}
+
+// =====================================================
+// HÃ m merge chÃ­nh
+// =====================================================
+
+void mergeTranslateXYToTranslate(SkeletonData& skeleton) {
+    for (auto& animation : skeleton.animations) {
+        //Translate
+        for (auto& [boneName, boneTimeline] : animation.bones) {
+            bool hasTranslateX = boneTimeline.contains("translatex");
+            bool hasTranslateY = boneTimeline.contains("translatey");
+            
+            if (!hasTranslateX && !hasTranslateY) continue;
+            
+            // Tạo copies để xử lý
+            Timeline tlX = hasTranslateX ? boneTimeline["translatex"] : Timeline();
+            Timeline tlY = hasTranslateY ? boneTimeline["translatey"] : Timeline();
+            
+            // Thu thập tất cả time points
+            std::set<float> allTimes;
+            if (hasTranslateX) for (const auto& f : tlX) allTimes.insert(f.time);
+            if (hasTranslateY) for (const auto& f : tlY) allTimes.insert(f.time);
+            
+            // Split curves tại các breakpoints
+            if (hasTranslateX) splitTimelineAtBreakpoints(tlX, allTimes);
+            if (hasTranslateY) splitTimelineAtBreakpoints(tlY, allTimes);
+            
+            // Thu thập lại times sau khi split
+            allTimes.clear();
+            if (hasTranslateX) for (const auto& f : tlX) allTimes.insert(f.time);
+            if (hasTranslateY) for (const auto& f : tlY) allTimes.insert(f.time);
+            
+            // Merge timelines
+            Timeline mergedTimeline;
+            
+            for (float time : allTimes) {
+                TimelineFrame newFrame;
+                newFrame.time = time;
+                
+                const TimelineFrame* frameX = hasTranslateX ? findFrameAtTime(tlX, time) : nullptr;
+                const TimelineFrame* frameY = hasTranslateY ? findFrameAtTime(tlY, time) : nullptr;
+                
+                // Giá trị
+                newFrame.value1 = frameX ? frameX->value1 : 0.0f;
+                newFrame.value2 = frameY ? frameY->value1 : 0.0f;
+                
+                // Curve
+                bool hasXCurve = frameX && frameX->curveType == CurveType::CURVE_BEZIER;
+                bool hasYCurve = frameY && frameY->curveType == CurveType::CURVE_BEZIER;
+                
+                if (hasXCurve || hasYCurve) {
+                    newFrame.curveType = CurveType::CURVE_BEZIER;
+                    newFrame.curve.resize(8, 0.0f);
+                    
+                    // Copy curve X
+                    if (hasXCurve && frameX->curve.size() >= 4) {
+                        newFrame.curve[0] = frameX->curve[0];
+                        newFrame.curve[1] = frameX->curve[1];
+                        newFrame.curve[2] = frameX->curve[2];
+                        newFrame.curve[3] = frameX->curve[3];
+                    }
+                    
+                    // Copy curve Y
+                    if (hasYCurve && frameY->curve.size() >= 4) {
+                        newFrame.curve[4] = frameY->curve[0];
+                        newFrame.curve[5] = frameY->curve[1];
+                        newFrame.curve[6] = frameY->curve[2];
+                        newFrame.curve[7] = frameY->curve[3];
+                    }
+                } else if ((frameX && frameX->curveType == CurveType::CURVE_STEPPED) ||
+                          (frameY && frameY->curveType == CurveType::CURVE_STEPPED)) {
+                    newFrame.curveType = CurveType::CURVE_STEPPED;
+                } else {
+                    newFrame.curveType = CurveType::CURVE_LINEAR;
+                }
+                
+                mergedTimeline.push_back(newFrame);
+            }
+            
+            boneTimeline["translate"] = mergedTimeline;
+            if (hasTranslateX) boneTimeline.erase("translatex");
+            if (hasTranslateY) boneTimeline.erase("translatey");
+        }
+        //Scale
+        for (auto& [boneName, boneTimeline] : animation.bones) {
+            bool hasScaleX = boneTimeline.contains("scalex");
+            bool hasScaleY = boneTimeline.contains("scaley");
+            
+            if (!hasScaleX && !hasScaleY) continue;
+            
+            // Tạo copies để xử lý
+            Timeline tlX = hasScaleX ? boneTimeline["scalex"] : Timeline();
+            Timeline tlY = hasScaleY ? boneTimeline["scaley"] : Timeline();
+            
+            // Thu thập tất cả time points
+            std::set<float> allTimes;
+            if (hasScaleX) for (const auto& f : tlX) allTimes.insert(f.time);
+            if (hasScaleY) for (const auto& f : tlY) allTimes.insert(f.time);
+            
+            // Split curves tại các breakpoints
+            if (hasScaleX) splitTimelineAtBreakpoints(tlX, allTimes);
+            if (hasScaleY) splitTimelineAtBreakpoints(tlY, allTimes);
+            
+            // Thu thập lại times sau khi split
+            allTimes.clear();
+            if (hasScaleX) for (const auto& f : tlX) allTimes.insert(f.time);
+            if (hasScaleY) for (const auto& f : tlY) allTimes.insert(f.time);
+            
+            // Merge timelines
+            Timeline mergedTimeline;
+            
+            for (float time : allTimes) {
+                TimelineFrame newFrame;
+                newFrame.time = time;
+                
+                const TimelineFrame* frameX = hasScaleX ? findFrameAtTime(tlX, time) : nullptr;
+                const TimelineFrame* frameY = hasScaleY ? findFrameAtTime(tlY, time) : nullptr;
+                
+                // Giá trị
+                newFrame.value1 = frameX ? frameX->value1 : 1.0f;
+                newFrame.value2 = frameY ? frameY->value1 : 1.0f;
+                
+                // Curve
+                bool hasXCurve = frameX && frameX->curveType == CurveType::CURVE_BEZIER;
+                bool hasYCurve = frameY && frameY->curveType == CurveType::CURVE_BEZIER;
+                
+                if (hasXCurve || hasYCurve) {
+                    newFrame.curveType = CurveType::CURVE_BEZIER;
+                    newFrame.curve.resize(8, 0.0f);
+                    
+                    // Copy curve X
+                    if (hasXCurve && frameX->curve.size() >= 4) {
+                        newFrame.curve[0] = frameX->curve[0];
+                        newFrame.curve[1] = frameX->curve[1];
+                        newFrame.curve[2] = frameX->curve[2];
+                        newFrame.curve[3] = frameX->curve[3];
+                    }
+                    
+                    // Copy curve Y
+                    if (hasYCurve && frameY->curve.size() >= 4) {
+                        newFrame.curve[4] = frameY->curve[0];
+                        newFrame.curve[5] = frameY->curve[1];
+                        newFrame.curve[6] = frameY->curve[2];
+                        newFrame.curve[7] = frameY->curve[3];
+                    }
+                } else if ((frameX && frameX->curveType == CurveType::CURVE_STEPPED) ||
+                          (frameY && frameY->curveType == CurveType::CURVE_STEPPED)) {
+                    newFrame.curveType = CurveType::CURVE_STEPPED;
+                } else {
+                    newFrame.curveType = CurveType::CURVE_LINEAR;
+                }
+                
+                mergedTimeline.push_back(newFrame);
+            }
+            
+            boneTimeline["scale"] = mergedTimeline;
+            if (hasScaleX) boneTimeline.erase("scalex");
+            if (hasScaleY) boneTimeline.erase("scaley");
+        }
+        //Shear
+        for (auto& [boneName, boneTimeline] : animation.bones) {
+            bool hasShearX = boneTimeline.contains("shearx");
+            bool hasShearY = boneTimeline.contains("sheary");
+            
+            if (!hasShearX && !hasShearY) continue;
+            
+            // Tạo copies để xử lý
+            Timeline tlX = hasShearX ? boneTimeline["shearx"] : Timeline();
+            Timeline tlY = hasShearY ? boneTimeline["sheary"] : Timeline();
+            
+            // Thu thập tất cả time points
+            std::set<float> allTimes;
+            if (hasShearX) for (const auto& f : tlX) allTimes.insert(f.time);
+            if (hasShearY) for (const auto& f : tlY) allTimes.insert(f.time);
+            
+            // Split curves tại các breakpoints
+            if (hasShearX) splitTimelineAtBreakpoints(tlX, allTimes);
+            if (hasShearY) splitTimelineAtBreakpoints(tlY, allTimes);
+            
+            // Thu thập lại times sau khi split
+            allTimes.clear();
+            if (hasShearX) for (const auto& f : tlX) allTimes.insert(f.time);
+            if (hasShearY) for (const auto& f : tlY) allTimes.insert(f.time);
+            
+            // Merge timelines
+            Timeline mergedTimeline;
+            
+            for (float time : allTimes) {
+                TimelineFrame newFrame;
+                newFrame.time = time;
+                
+                const TimelineFrame* frameX = hasShearX ? findFrameAtTime(tlX, time) : nullptr;
+                const TimelineFrame* frameY = hasShearY ? findFrameAtTime(tlY, time) : nullptr;
+                
+                // Giá trị
+                newFrame.value1 = frameX ? frameX->value1 : 0.0f;
+                newFrame.value2 = frameY ? frameY->value1 : 0.0f;
+                
+                // Curve
+                bool hasXCurve = frameX && frameX->curveType == CurveType::CURVE_BEZIER;
+                bool hasYCurve = frameY && frameY->curveType == CurveType::CURVE_BEZIER;
+                
+                if (hasXCurve || hasYCurve) {
+                    newFrame.curveType = CurveType::CURVE_BEZIER;
+                    newFrame.curve.resize(8, 0.0f);
+                    
+                    // Copy curve X
+                    if (hasXCurve && frameX->curve.size() >= 4) {
+                        newFrame.curve[0] = frameX->curve[0];
+                        newFrame.curve[1] = frameX->curve[1];
+                        newFrame.curve[2] = frameX->curve[2];
+                        newFrame.curve[3] = frameX->curve[3];
+                    }
+                    
+                    // Copy curve Y
+                    if (hasYCurve && frameY->curve.size() >= 4) {
+                        newFrame.curve[4] = frameY->curve[0];
+                        newFrame.curve[5] = frameY->curve[1];
+                        newFrame.curve[6] = frameY->curve[2];
+                        newFrame.curve[7] = frameY->curve[3];
+                    }
+                } else if ((frameX && frameX->curveType == CurveType::CURVE_STEPPED) ||
+                          (frameY && frameY->curveType == CurveType::CURVE_STEPPED)) {
+                    newFrame.curveType = CurveType::CURVE_STEPPED;
+                } else {
+                    newFrame.curveType = CurveType::CURVE_LINEAR;
+                }
+                
+                mergedTimeline.push_back(newFrame);
+            }
+            
+            boneTimeline["shear"] = mergedTimeline;
+            if (hasShearX) boneTimeline.erase("shearx");
+            if (hasShearY) boneTimeline.erase("sheary");
+        }
+ 
     }
 }
 

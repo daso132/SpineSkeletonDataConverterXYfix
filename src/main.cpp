@@ -220,6 +220,9 @@ bool convertFile(const std::string& inputFile, const std::string& outputFile,
         // 跨版本转换处理
         if (aboveOrEqualVersion(inputVersion, SpineVersion::Version40) &&
             belowOrEqualVersion(outputVersion, SpineVersion::Version38)) {
+
+            //combine "translatex" and "translatey" into "translate" (similar to scaleXY and shearXY) before doing the downgrade
+            mergeTranslateXYToTranslate(skelData); 
             if (removeCurveOption) {
                 std::cout << "Converting from 4.x to 3.x with --remove-curve, stripping curves...\n";
                 removeCurve(skelData);
